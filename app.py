@@ -11,7 +11,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Infiniti Transportes | BI Comercial", layout="wide", initial_sidebar_state="collapsed")
-ADMINS = {"marcilio@infinititransportes.com.br", "joapedro.miranda@infinititransportes.com.br"}
+ADMINS = {"marcilio@infinititransportes.com.br", "joaopedro.miranda@infinititransportes.com.br"}
 VIEWERS = {"marcos@infinititransportes.com.br", "reginaldo@infinititransportes.com.br", "jonathas@infinititransportes.com.br", "priscila@infinititransportes.com.br", "financeiro@infinititransportes.com.br", "comercial@infinititransportes.com.br", "sanches@infinititransportes.com.br"}
 SHEET_ID = "1fsBrGHHZO-_5TPOy1us3QLGcLAsJU-00Cbn45hJQakY"
 
