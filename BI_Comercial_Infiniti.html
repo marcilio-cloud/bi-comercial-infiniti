@@ -1717,11 +1717,11 @@ function brokerMetaChart(id,obj,totalBase,resultObj,totalResult){
  const realizedTotal=entries.reduce((s,x)=>s+(+x[1]||0),0),resultTotal=entries.reduce((s,[name])=>s+(+resultObj[name]||0),0);
  const head=`<div class="broker-meta-head"><div>Corretor</div><div>Faturamento</div><div>Meta mês</div><div>Meta proporcional</div><div>Realizado</div><div>Ating.</div><div>Margem média</div><div>Média / dia</div><div>% REP. PERÍODO</div></div>`;
  const body=entries.map(([name,value])=>{
-  const t=targetForBroker(name),meta=metaForTargetPeriod(t,p),prop=meta,att=prop?value/prop:0,share=totalBase?value/totalBase:0;
+  const t=targetForBroker(name),meta=monthSlices(p).reduce((sum,m)=>sum+safeNum(t?.metasMensais?.[String(m.monthNumber)]??t?.metasMensais?.[m.monthNumber]??0),0),prop=metaForTargetPeriod(t,p),att=prop?value/prop:0,share=totalBase?value/totalBase:0;
   const result=+resultObj[name]||0,margin=value?result/value:0;
   return `<div class="broker-meta-row"><div class="broker-meta-name">${brokerPersonCell(name)}</div><div class="broker-meta-track"><div class="broker-meta-fill" style="width:${Math.max(1.2,value/max*100)}%"></div></div><div class="broker-meta-value">${meta?brl(meta):'—'}</div><div class="broker-meta-value">${prop?brl(prop):'—'}</div><div class="broker-meta-value">${brl(value)}</div><div class="broker-meta-pct">${prop?pct(att):'—'}</div><div class="broker-meta-margin">${value?pct(margin):'—'}</div><div class="broker-meta-average">${brl(p.days?value/p.days:0)}</div><div class="broker-meta-share">${pct(share)}</div></div>`;
  }).join('');
- const metaTotal=entries.reduce((s,[name])=>s+metaForTargetPeriod(targetForBroker(name),p),0),propTotal=metaTotal;
+ const metaTotal=entries.reduce((s,[name])=>{const t=targetForBroker(name);return s+monthSlices(p).reduce((a,m)=>a+safeNum(t?.metasMensais?.[String(m.monthNumber)]??t?.metasMensais?.[m.monthNumber]??0),0)},0),propTotal=entries.reduce((s,[name])=>s+metaForTargetPeriod(targetForBroker(name),p),0);
  const totalAtt=propTotal?realizedTotal/propTotal:0,totalMargin=realizedTotal?resultTotal/realizedTotal:0;
  const totalRow=`<div class="broker-meta-row broker-meta-total"><div class="broker-meta-name broker-total-name">TOTAL</div><div class="broker-meta-track"><div class="broker-meta-fill" style="width:100%"></div></div><div class="broker-meta-value">${metaTotal?brl(metaTotal):'—'}</div><div class="broker-meta-value">${propTotal?brl(propTotal):'—'}</div><div class="broker-meta-value">${brl(realizedTotal)}</div><div class="broker-meta-pct">${propTotal?pct(totalAtt):'—'}</div><div class="broker-meta-margin">${realizedTotal?pct(totalMargin):'—'}</div><div class="broker-meta-average">${brl(p.days?realizedTotal/p.days:0)}</div><div class="broker-meta-share">${pct(totalBase?realizedTotal/totalBase:0)}</div></div>`;
  el.innerHTML=head+body+totalRow;
@@ -1777,8 +1777,8 @@ function agencyHorizontalChart(id,obj,resultObj={}){
  });
 
  const entries=[...index.values()].map(r=>{
-   const metaMes=agencyMetaForPeriod(r.name,p);
-   const metaProp=metaMes;
+   const metaMes=monthSlices(p).reduce((sum,m)=>sum+agencyTargetForMonth(r.name,m.monthNumber),0);
+   const metaProp=agencyMetaForPeriod(r.name,p);
    const ating=metaProp?r.realized/metaProp:0;
    const margem=r.realized?r.result/r.realized:0;
    return {...r,metaMes,metaProp,ating,margem};
