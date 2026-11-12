@@ -76,7 +76,7 @@ def carregar_planilha(client_id, client_secret, refresh_token, spreadsheet_id):
     header_index = next(i for i, row in enumerate(values[:3]) if "nr_ctrc" in row and "dt_emissao" in row)
     headers_row = [str(x).strip() for x in values[header_index]]
     records = []
-    numeric_cols = {"vl_peso", "vl_frete_empresa", "vl_frete_motorista", "Resultado", "Margem"}
+    numeric_cols = {"vl_peso", "vl_frete_empresa", "vl_frete_motorista", "Resultado", "Margem", "vl_nota_fiscal"}
     for row in values[header_index + 1:]:
         if not any(str(v).strip() for v in row):
             continue
@@ -195,4 +195,12 @@ if not any(t.get("metasMensais", {}).get("10", 0) for t in extra.get("metasCorre
 extra_json = json.dumps(extra, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
 html = html[:extra_start] + extra_json + html[extra_start + extra_len:]
 # O HTML roda no iframe, com as mesmas regras e exportação do painel validado.
+# Quatro indicadores adicionais do BI Comercial Infiniti
+addon_js = (Path(__file__).parent / "indicadores_operacionais_infiniti.js").read_text(encoding="utf-8")
+
+if "</body>" not in html:
+    raise ValueError("Fechamento </body> não encontrado no HTML oficial")
+
+html_inicio, html_final = html.rsplit("</body>", 1)
+html = html_inicio + "<script>\n" + addon_js + "\n</script>\n</body>" + html_final
 components.html(html, height=2700, scrolling=True)
