@@ -256,7 +256,7 @@
       </section>
       <section class="card io-panel" id="io-drivers-section">
         <h3>Motoristas Recorrentes · Top 20</h3>
-        <div class="io-scroll"><table class="io-table"><thead><tr><th>#</th><th>Motorista</th><th class="io-right">Viagens</th><th class="io-right">Frete motorista</th><th class="io-right">Peso (t)</th><th class="io-right">Placas</th></tr></thead><tbody id="io-drivers"></tbody></table></div>
+        <div class="io-scroll"><table class="io-table"><thead><tr><th>#</th><th>Motorista</th><th class="io-right">Viagens</th><th class="io-right">Frete motorista</th><th class="io-right">Peso (t)</th><th class="io-right">Placa(s)</th></tr></thead><tbody id="io-drivers"></tbody></table></div>
         <p class="io-note">Motoristas agrupados por CPF (ou nome quando indisponível). Viagens e peso sem duplicar trocas de nota; frete motorista conforme o documento fiscal.</p>
       </section>`;
     // Adicionar DEPOIS de todos os indicadores e do detalhamento originais,
@@ -289,7 +289,7 @@
     $('io-risk-bands').innerHTML=risk.bands.map(b=>`<tr><td>${escape(b.label)}</td><td class="io-right io-emphasis">${fmt(b.count)}</td><td class="io-right">${money(b.total)}</td></tr>`).join('');
     $('io-products').innerHTML=risk.products.length?risk.products.map(p=>`<tr><td>${escape(p.label)}</td><td class="io-right io-emphasis">${fmt(p.count)}</td>${p.bands.map(v=>`<td class="io-right">${fmt(v)}</td>`).join('')}</tr>`).join(''):noData(7);
     $('io-high-risk').innerHTML=risk.high.length?risk.high.map(t=>`<tr><td>${escape(iso(t.date))}</td><td>${escape(t.ctes.join(', '))}</td><td>${escape(t.plate||'—')}</td><td title="${escape(t.payer||'')}">${escape((t.payer||'—').slice(0,42))}</td><td>${escape(t.product)}</td><td>${escape(`${t.origCity}/${t.origUF} → ${t.destCity}/${t.destUF}`)}</td><td class="io-right io-emphasis">${money(t.nfValue)}</td></tr>`).join(''):noData(7);
-    $('io-drivers').innerHTML=drivers.length?drivers.map((d,i)=>`<tr><td>${i+1}</td><td>${escape(d.label)}</td><td class="io-right io-emphasis">${fmt(d.count)}</td><td class="io-right">${money(d.freight)}</td><td class="io-right">${fmt(d.weight,2)}</td><td class="io-right">${fmt(d.plates.size)}</td></tr>`).join(''):noData(6);
+    $('io-drivers').innerHTML=drivers.length?drivers.map((d,i)=>`<tr><td>${i+1}</td><td>${escape(d.label)}</td><td class="io-right io-emphasis">${fmt(d.count)}</td><td class="io-right">${money(d.freight)}</td><td class="io-right">${fmt(d.weight,2)}</td><td class="io-right">${escape([...d.plates].sort().join(', ') || '—')}</td></tr>`).join(''):noData(6);
   }
   function safeDraw(){try{draw();}catch(err){console.error('[Infiniti] Novos indicadores:',err);section.querySelector('.io-subtitle').textContent='Os indicadores adicionais não puderam ser atualizados: '+(err?.message||err);}}
   let scheduled=false;
