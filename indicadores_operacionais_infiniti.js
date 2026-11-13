@@ -83,52 +83,85 @@
     });
   }
   function newTrip(leg){return {legs:[leg],first:leg,last:leg,joined:false};}
+  // Regra validada para viagens físicas: uma placa por dia de emissão representa
+  // uma viagem consolidada, independentemente do número de CT-es e notas fiscais.
+  // Sem placa/data confiáveis, cada CT-e permanece individual (não supor vínculo).
   function buildTrips(rows){
-    const docs=mergeSameDocument(rows),byPlate=new Map(),singles=[];
-    for(const d of docs){
-      if(d.plate.length<6 || !d.day){singles.push(newTrip(d));continue;}
-      const groupKey=d.plate+'|'+d.day;
-      if(!byPlate.has(groupKey))byPlate.set(groupKey,[]);
-      byPlate.get(groupKey).push(d);
+    const docs=mergeSameDocument(rows),groups=new Map();
+    for(const doc of docs){
+      const validPlate=doc.plate.length>=6 && doc.day;
+      const key=validPlate?`${doc.plate}|${doc.day}`:`CTE|${doc.agency}|${doc.code}|${doc.day}|${groups.size}`;
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(doc);
     }
-    const trips=[...singles];
-    for(const docsAtPlate of byPlate.values()){
-      docsAtPlate.sort((a,b)=>a.date-b.date || (safe(a.code)-safe(b.code)));
-      const lines=[];
-      for(const leg of docsAtPlate){
-        let best=null,bestScore=-1;
-        for(const journey of lines){
-          const prev=journey.last;
-          if(prev.date>leg.date || journey.first.origUF!=='PR' || prev.destUF!=='ES' || leg.origUF!=='ES' || !sameTransferPoint(prev,leg) || !samePayer(prev,leg))continue;
-          const elapsed=(leg.date-prev.date)/60000;
-          if(elapsed<0 || elapsed>16*60)continue;
-          const score=(prev.destCity===leg.origCity?10:4)+(prev.cnpj && prev.cnpj===leg.cnpj?4:0)-elapsed/10000;
-          if(score>bestScore){best=journey;bestScore=score;}
-        }
-        if(best){best.legs.push(leg);best.last=leg;best.joined=true;}
-        else lines.push(newTrip(leg));
+    const result=[];
+    for(const batch of groups.values()){
+      const legs=batch.slice().sort((a,b)=>(a.date-b.date)||(safe(a.code)-safe(b.code)));
+      // Agrupar clientes da viagem exclusivamente para corrigir a duplicação fiscal
+      // das operações PR -> ES -> destino final. Não altera a unidade placa+dia.
+      const payerGroups=[];
+      for(const leg of legs){
+        let payerGroup=payerGroups.find(g=>samePayer(g[0],leg));
+        if(!payerGroup){payerGroup=[];payerGroups.push(payerGroup);}
+        payerGroup.push(leg);
       }
-      trips.push(...lines);
-    }
-    return trips.map(t=>{
-      const ls=t.legs,first=t.first,last=t.last;
-      const nfValues=ls.map(x=>x.value).filter(v=>v>0);
-      // Nas trocas de NF, não somar os valores das notas das duas emissões.
-      const nfValue=t.joined?Math.max(0,...nfValues):(first.value||0);
-      // O peso é da carga física e não a soma das duas pernas de CT-e.
-      const weight=t.joined?Math.max(...ls.map(x=>x.weight)):first.weight;
-      const distinctDriverCosts=[];
-      for(const leg of ls){if(leg.driverFreight>0&&!distinctDriverCosts.some(x=>Math.abs(x-leg.driverFreight)<.005))distinctDriverCosts.push(leg.driverFreight);}
-      // Primeiro a quantidade por viagem; frete motorista é somado apenas uma vez por valor de perna.
-      const driverFreight=distinctDriverCosts.reduce((a,b)=>a+b,0);
-      const principal=ls.slice().sort((a,b)=>b.value-a.value)[0];
-      return {
-        date:first.date,ctes:ls.map(l=>l.code),joined:t.joined,plate:first.plate,
-        payer:first.payer,origCity:first.origCity,origUF:first.origUF,destCity:last.destCity,destUF:last.destUF,
-        driver:first.driver||last.driver,cpf:first.cpf||last.cpf,weight,nfValue,driverFreight,
-        product:principal?.product||'NÃO INFORMADO',legCount:ls.length
+      // Cada CT-e pode conter uma ou mais NFs. Caso haja reemissão com as MESMAS
+      // chaves de NF, apenas o maior valor e peso são considerados para aquele
+      // conjunto fiscal. Sem chave, utiliza-se o CT-e individual.
+      const sumDistinct=(items,field)=>{
+        const unique=new Map();
+        for(const leg of items){
+          const invoiceKeys=[...new Set(leg.rows.flatMap(r=>(String(r.nr_chave_nf||'').match(/\d{44}/g)||[])))].sort();
+          const sig=invoiceKeys.length?`NFE:${invoiceKeys.join('|')}`:`CTE:${leg.agency}|${leg.code}|${leg.day}|${leg.plate}`;
+          unique.set(sig,Math.max(unique.get(sig)||0,Math.max(0,safe(leg[field]))));
+        }
+        return [...unique.values()].reduce((s,v)=>s+v,0);
       };
-    });
+      let nfValue=0,weight=0,driverFreight=0,joined=false;
+      let first=legs[0],last=legs[legs.length-1];
+      for(const pg of payerGroups){
+        const origins=pg.filter(x=>x.origUF==='PR'&&x.destUF==='ES');
+        const finals=pg.filter(x=>x.origUF==='ES');
+        const paired=[];
+        for(const origin of origins){
+          const next=finals.filter(x=>x.date>=origin.date&&(x.date-origin.date)<=16*3600000&&sameTransferPoint(origin,x))
+                           .sort((a,b)=>a.date-b.date);
+          if(next.length)paired.push([origin,next[next.length-1]]);
+        }
+        if(paired.length){
+          joined=true;
+          const matchedSources=new Set(paired.map(x=>x[0]));
+          const matchedFinals=new Set(paired.map(x=>x[1]));
+          const others=pg.filter(x=>!matchedSources.has(x)&&!matchedFinals.has(x));
+          // NF e peso das pernas de troca são alternativos, nunca cumulativos.
+          nfValue+=Math.max(sumDistinct([...matchedSources],'value'),sumDistinct([...matchedFinals],'value'))+sumDistinct(others,'value');
+          weight+=Math.max(sumDistinct([...matchedSources],'weight'),sumDistinct([...matchedFinals],'weight'))+sumDistinct(others,'weight');
+          // A rota utiliza a origem cronologicamente inicial e o destino final
+          // do último CT-e, inclusive quando há mudança de NF no Espírito Santo.
+          // Frete motorista: preservar os CT-es de pagamento distintos; apenas
+          // duplicidade positiva IDÊNTICA nas duas pernas é descontada uma vez.
+          let costs=pg.reduce((s,x)=>s+x.driverFreight,0);
+          const sourceCosts=[...matchedSources].map(x=>x.driverFreight).filter(x=>x>0);
+          const finalCosts=[...matchedFinals].map(x=>x.driverFreight).filter(x=>x>0);
+          for(const v of sourceCosts){const idx=finalCosts.findIndex(c=>Math.abs(c-v)<.005);if(idx>=0){costs-=v;finalCosts.splice(idx,1);}}
+          driverFreight+=Math.max(0,costs);
+        }else{
+          nfValue+=sumDistinct(pg,'value');
+          weight+=sumDistinct(pg,'weight');
+          driverFreight+=pg.reduce((s,x)=>s+x.driverFreight,0);
+        }
+      }
+      const driverLeg=legs.find(x=>x.driver && x.cpf) || legs.find(x=>x.driver) || first;
+      const biggest=legs.slice().sort((a,b)=>b.value-a.value)[0];
+      result.push({
+        date:legs[0].date,ctes:legs.map(x=>x.code),joined,plate:legs[0].plate,
+        payer:legs[0].payer,origCity:first.origCity,origUF:first.origUF,
+        destCity:last.destCity,destUF:last.destUF,
+        driver:driverLeg.driver,cpf:driverLeg.cpf,weight,nfValue,driverFreight,
+        product:biggest?.product||'NÃO INFORMADO',legCount:legs.length
+      });
+    }
+    return result;
   }
   function routeRank(trips,kind){
     const groups=new Map();
@@ -241,7 +274,7 @@
           <div><div class="io-subhead">Rotas por cidade</div><div class="io-scroll"><table class="io-table"><thead><tr><th>Origem → Destino</th><th class="io-right">Viagens</th><th class="io-right">Peso (t)</th></tr></thead><tbody id="io-city-routes"></tbody></table></div></div>
           <div><div class="io-subhead">Rotas por estado</div><div class="io-scroll"><table class="io-table"><thead><tr><th>UF Origem → UF Destino</th><th class="io-right">Viagens</th><th class="io-right">Peso (t)</th></tr></thead><tbody id="io-state-routes"></tbody></table></div></div>
         </div>
-        <p class="io-note">Em viagens com troca de nota fiscal, considera origem do primeiro CT-e e destino final do último CT-e, conforme critérios de consolidação aprovados.</p>
+        <p class="io-note">Uma viagem por placa e dia de emissão. CT-es adicionais da mesma operação não geram novas viagens; rota consolidada pela primeira origem e pelo último destino, com tratamento específico para trocas de NF no ES.</p>
       </section>
       <section class="card io-panel" id="io-risk-section">
         <h3>Gerenciamento de Risco · Valor da Mercadoria</h3>
@@ -257,7 +290,7 @@
       <section class="card io-panel" id="io-drivers-section">
         <h3>Motoristas Recorrentes · Top 20</h3>
         <div class="io-scroll"><table class="io-table"><thead><tr><th>#</th><th>Motorista</th><th class="io-right">Viagens</th><th class="io-right">Frete motorista</th><th class="io-right">Peso (t)</th><th class="io-right">Placa(s)</th></tr></thead><tbody id="io-drivers"></tbody></table></div>
-        <p class="io-note">Motoristas agrupados por CPF (ou nome quando indisponível). Viagens e peso sem duplicar trocas de nota; frete motorista conforme o documento fiscal.</p>
+        <p class="io-note">Motoristas agrupados por CPF (ou nome quando indisponível). Viagens consolidadas por placa e data de emissão; CT-es do mesmo veículo/dia não multiplicam viagens. Frete motorista conforme valores lançados nos CT-es.</p>
       </section>`;
     // Adicionar DEPOIS de todos os indicadores e do detalhamento originais,
     // ANTES do rodapé, sem mover nenhum componente existente.
@@ -282,7 +315,7 @@
     $('io-emitters').innerHTML=e.people.length?e.people.map(p=>`<tr><td>${escape(p.label)}</td><td class="io-right io-emphasis">${fmt(p.count)}</td><td class="io-right">${e.total?fmt(100*p.count/e.total,2):'0,00'}%</td></tr>`).join(''):noData(3);
     const max=Math.max(1,...e.periods.map(p=>p.count));
     $('io-trend').innerHTML=e.periods.length?e.periods.slice(-45).map(p=>`<div class="io-bar"><div class="io-bar-label">${escape(p.label)}</div><div class="io-bar-track"><div class="io-bar-fill" style="width:${Math.max(0,100*p.count/max).toFixed(2)}%"></div></div><div class="io-bar-value">${fmt(p.count)}</div></div>`).join(''):'<p class="io-desc">Sem emissões no filtro.</p>';
-    $('io-route-kpis').innerHTML=metric(fmt(trips.length),'Viagens físicas no filtro')+metric(fmt(swaps),'Viagens consolidadas por troca de nota');
+    $('io-route-kpis').innerHTML=metric(fmt(trips.length),'Viagens consolidadas (placa + dia)')+metric(fmt(swaps),'Viagens consolidadas por troca de nota');
     $('io-city-routes').innerHTML=routesRows(routeRank(trips,'city'));
     $('io-state-routes').innerHTML=routesRows(routeRank(trips,'uf'));
     $('io-risk-kpis').innerHTML=metric(fmt(risk.totalWithInvoice),'Viagens com valor de NF')+metric(fmt(risk.without),'Viagens sem valor de NF')+metric(fmt(risk.bands.slice(1).reduce((sum,b)=>sum+b.count,0)),'Viagens acima de R$ 300 mil');
