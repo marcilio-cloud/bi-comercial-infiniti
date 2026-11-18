@@ -349,9 +349,66 @@
     }
   }
 
+  // Outras receitas: cartões aditivos, com as MESMAS linhas de filtered() do painel principal.
+  // Não altera Faturamento, Resultado, Margem ou os cartões existentes.
+  function syncOtherRevenueKpis(rows){
+    const mainKpis=document.getElementById('kpis');
+    if(!mainKpis)return;
+    const template=mainKpis.querySelector('.kpi');
+    if(!template)return;
+
+    if(!document.getElementById('io-other-revenues-style')){
+      const style=document.createElement('style');
+      style.id='io-other-revenues-style';
+      style.textContent=`
+        .io-other-revenues{padding:0 18px;margin:0 0 26px}
+        .io-other-revenues h3{font-size:16px;font-weight:800;color:var(--text,#f7f9fc);margin:0 0 14px;line-height:1.3}
+        .io-other-revenues h3::after{content:'';display:block;width:44px;height:3px;background:var(--yellow,#ffc52f);border-radius:3px;margin-top:7px}
+        .io-other-revenues-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;align-items:stretch}
+        .io-other-revenues-grid .kpi{min-width:0}
+        @media(min-width:1501px){.io-other-revenues-grid .kpi .v,.io-other-revenues-grid .kpi:first-child .v{font-size:clamp(17px,1.25vw,24px)!important}}
+        @media(min-width:901px) and (max-width:1500px){.io-other-revenues-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+        @media(min-width:561px) and (max-width:900px){.io-other-revenues-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+        @media(max-width:560px){.io-other-revenues-grid{grid-template-columns:1fr}}
+      `;
+      document.head.appendChild(style);
+    }
+
+    let section=document.getElementById('io-other-revenues');
+    if(!section){
+      section=document.createElement('section');
+      section.id='io-other-revenues';
+      section.className='io-other-revenues';
+      section.setAttribute('aria-label','Outras receitas');
+      section.innerHTML='<h3>Outras receitas</h3><div class="io-other-revenues-grid" id="io-other-revenues-grid"></div>';
+      mainKpis.insertAdjacentElement('afterend',section);
+    }
+    const grid=document.getElementById('io-other-revenues-grid');
+    if(!grid)return;
+
+    const revenueCards=[
+      {id:'io-kpi-seguro-descontado',label:'Seguro descontado motorista',field:'vl_seguro_descontado',subtitle:'Soma de vl_seguro_descontado',icon:'<svg viewBox="0 0 24 24"><path d="M12 2l8 4v5c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>'},
+      {id:'io-kpi-taxa-adm',label:'Taxa administrativa',field:'vl_taxa_adm',subtitle:'Soma de vl_taxa_adm',icon:'<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>'}
+    ];
+    for(const item of revenueCards){
+      let card=document.getElementById(item.id);
+      if(!card){
+        card=template.cloneNode(true);
+        card.id=item.id;
+        const icon=card.querySelector('.kpi-icon');if(icon)icon.innerHTML=item.icon;
+        const label=card.querySelector('.t');if(label)label.textContent=item.label;
+        const subtitle=card.querySelector('.s');if(subtitle)subtitle.textContent=item.subtitle;
+        grid.appendChild(card);
+      }
+      const value=card.querySelector('.v');
+      if(value)value.textContent=money(rows.reduce((sum,row)=>sum+safe(row[item.field]),0));
+    }
+  }
+
   function draw(){
     const rows=typeof filtered==='function'?filtered():[];
     syncMainCostKpis(rows);
+    syncOtherRevenueKpis(rows);
     const granularity=$('io-grain').value;
     const e=emissions(rows,granularity),trips=buildTrips(rows),risk=riskMetrics(trips),drivers=driversRank(trips);
     const swaps=trips.filter(t=>t.joined).length;
