@@ -306,8 +306,52 @@
   const metric=(value,label)=>`<div class="io-metric"><strong>${escape(value)}</strong><small>${escape(label)}</small></div>`;
   const noData=(cols)=>`<tr><td colspan="${cols}" style="color:#91a2b5;text-align:center">Sem registros para o período e os filtros selecionados.</td></tr>`;
   const routesRows=(arr)=>arr.length?arr.map(o=>`<tr><td>${escape(o.label)}</td><td class="io-right io-emphasis">${fmt(o.count)}</td><td class="io-right">${fmt(o.weight,2)}</td></tr>`).join(''):noData(3);
+  // Apenas 3 cartões adicionais nos KPIs principais, sem substituir o render() oficial.
+  // Os dados vêm da MESMA função filtered() utilizada pelos sete cartões originais.
+  function syncMainCostKpis(rows){
+    const panel=document.getElementById('kpis');
+    if(!panel)return;
+    if(!document.getElementById('io-main-cost-kpis-style')){
+      const style=document.createElement('style');
+      style.id='io-main-cost-kpis-style';
+      // Duas linhas de cinco cartões no desktop; mesma responsividade do BI original.
+      style.textContent=`
+        @media(min-width:1501px){#kpis.kpis{grid-template-columns:repeat(5,minmax(0,1fr))!important}}
+        @media(min-width:901px) and (max-width:1500px){#kpis.kpis{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+        @media(min-width:561px) and (max-width:900px){#kpis.kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+        @media(max-width:560px){#kpis.kpis{grid-template-columns:1fr!important}}
+      `;
+      document.head.appendChild(style);
+    }
+    const extras=[
+      {id:'io-kpi-frete-motorista',label:'Frete motorista',field:'vl_frete_motorista',subtitle:'Soma de vl_frete_motorista',icon:'<svg viewBox="0 0 24 24"><rect x="2" y="6" width="13" height="11" rx="1"/><path d="M15 10h4l3 3v4h-7M5 17h1m9 0h1"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>'},
+      {id:'io-kpi-pedagio-motorista',label:'Pedágio motorista',field:'vl_pedagio_motorista',subtitle:'Soma de vl_pedagio_motorista',icon:'<svg viewBox="0 0 24 24"><path d="M3 20V9l9-5 9 5v11M2 10h20M8 10v10M16 10v10M3 15h18"/></svg>'},
+      {id:'io-kpi-icms-iss',label:'ICMS/ISS',field:'vl_icms_issqn',subtitle:'Soma de vl_icms_issqn',icon:'<svg viewBox="0 0 24 24"><path d="M4 2h13l3 3v17l-4-2-4 2-4-2-4 2zM8 9h8M8 13h8M8 17h5"/></svg>'}
+    ];
+    const reference=panel.querySelector('.kpi');
+    if(!reference)return;
+    let anchor=[...panel.children].find(el=>el.classList.contains('kpi')&&el.querySelector('.t')?.textContent.trim()==='Resultado Total');
+    if(!anchor)return; // Não altera o painel se o esquema original deixar de coincidir.
+    for(const c of extras){
+      let card=document.getElementById(c.id);
+      if(!card){
+        card=reference.cloneNode(true);
+        card.id=c.id;
+        const icon=card.querySelector('.kpi-icon');
+        if(icon)icon.innerHTML=c.icon;
+        const title=card.querySelector('.t');if(title)title.textContent=c.label;
+        const detail=card.querySelector('.s');if(detail)detail.textContent=c.subtitle;
+        panel.insertBefore(card,anchor);
+      }
+      const total=rows.reduce((sum,r)=>sum+safe(r[c.field]),0);
+      const value=card.querySelector('.v');
+      if(value)value.textContent=money(total);
+    }
+  }
+
   function draw(){
     const rows=typeof filtered==='function'?filtered():[];
+    syncMainCostKpis(rows);
     const granularity=$('io-grain').value;
     const e=emissions(rows,granularity),trips=buildTrips(rows),risk=riskMetrics(trips),drivers=driversRank(trips);
     const swaps=trips.filter(t=>t.joined).length;
