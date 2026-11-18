@@ -401,7 +401,12 @@
         grid.appendChild(card);
       }
       const value=card.querySelector('.v');
-      if(value)value.textContent=money(rows.reduce((sum,row)=>sum+safe(row[item.field]),0));
+      // Reproduz a função SOMA da planilha: células monetárias gravadas como texto não entram no total.
+      // Não converter 'R$ 203,41' ou strings numéricas; somente valores nativos do Google Sheets.
+      if(value)value.textContent=money(rows.reduce((sum,row)=>{
+        const cell=row[item.field];
+        return sum+(typeof cell==='number' && Number.isFinite(cell)?cell:0);
+      },0));
     }
   }
 
